@@ -71,7 +71,8 @@ def public_view(bulletin: dict) -> dict:
     threshold = document["policy"]["minimum_exposure"]
     masks = {"exposed", "nonresponse", "uncertainty_people", "reports", "substantiated",
              "pending", "inconclusive", "verified_remediations", "substantiated_rate",
-             "potential_rate_bounds", "reconciliation_incomplete_batches", "batches"}
+             "potential_rate_bounds", "reconciliation_incomplete_batches", "batches",
+             "completed_services", "completion_rate"}
     for row in document["areas"]:
         row.pop("batches", None)
         row.pop("case_ids", None)
@@ -99,6 +100,18 @@ def public_view(bulletin: dict) -> dict:
             value["monthly_capacity"] = None
             value["capacity_ratio"] = None
             value["disclosure_state"] = "suppressed_small_group"
+    delivery = document.get("service_delivery")
+    if delivery:
+        for row in delivery["areas"]:
+            row.pop("batches", None)
+            if row["exposed_people"] < threshold:
+                row["completed_services"] = None
+                row["exposed_people"] = None
+                row["nonresponse_people"] = None
+                row["completion_rate"] = None
+                row["disclosure_state"] = "suppressed_small_group"
+        delivery["total_completed_services"] = None
+        delivery["total_exposed_people"] = None
     if sum(document["case_counts"].values()) < threshold:
         document["case_counts"] = {key: None for key in document["case_counts"]}
         document["case_counts_disclosure"] = "suppressed_small_group"

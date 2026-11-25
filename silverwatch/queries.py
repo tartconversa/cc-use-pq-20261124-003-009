@@ -23,6 +23,7 @@ def provider_profile(db: Connection, provider_id: str, *, cut: int | None = None
     return {"provider": provider,
             "activity": {"touch_batches": len(touch_batches),
                          "exposed_people": sum(item["exposed_people"] for item in touch_batches),
+                         "completed_services": sum(item["completed_services"] for item in touch_batches),
                          "unanswered_people": sum(item["nonresponse_people"] for item in touch_batches),
                          "case_count": len(related), "findings": dict(sorted(by_finding.items()))},
             "cases": related, "cut": cut}
@@ -39,6 +40,7 @@ def district_overview(db: Connection, region: str, *, cut: int | None = None,
     findings = cases.all_findings(db, cut=cut, as_of=as_of)
     areas = defaultdict(lambda: {"providers": 0, "capacity_per_month": 0,
                                  "exposed_people": 0, "nonresponse_people": 0,
+                                 "completed_services": 0,
                                  "reported_issues": 0, "substantiated": 0,
                                  "pending": 0, "inconclusive": 0, "estimated_need": 0})
     for row in providers:
@@ -50,6 +52,7 @@ def district_overview(db: Connection, region: str, *, cut: int | None = None,
         area = areas[row["district"]]
         area["exposed_people"] += row["exposed_people"]
         area["nonresponse_people"] += row["nonresponse_people"]
+        area["completed_services"] += row["completed_services"]
         area["reported_issues"] += row["report_count"]
     for row in demand:
         areas[row["district"]]["estimated_need"] += row["estimated_people"]

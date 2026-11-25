@@ -11,6 +11,8 @@ Region = Literal["urban", "suburban", "rural"]
 ServiceKind = Literal["home_care", "meal", "medical", "day_center", "transport", "financial_guidance"]
 IssueKind = Literal["misleading_claim", "payment_dispute", "service_failure", "suspected_fraud", "access_barrier"]
 Finding = Literal["pending", "substantiated", "not_substantiated", "inconclusive"]
+ServiceMonth = Annotated[str, StringConstraints(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")]
+ProposalStatus = Literal["proposed", "confirmed", "cancelled"]
 
 
 class Strict(BaseModel):
@@ -72,6 +74,36 @@ class TouchBatch(Strict):
         if self.exposed_people + self.nonresponse_people < self.report_count:
             raise ValueError("触达及未回应总人数不能小于线索数")
         return self
+
+
+class ServiceAppointment(Strict):
+    """机构已经答应给老人的助餐预约，按机构与服务月份汇总的不可挤占承诺。"""
+    appointment_id: Key
+    provider_id: Key
+    region: Region
+    district: Text
+    service_kind: ServiceKind
+    service_month: ServiceMonth
+    committed_people: Annotated[int, Field(ge=1, le=100_000_000)]
+    source_revision: Annotated[int, Field(ge=1, le=1_000_000)]
+    source_ref: Text
+    observed_at: datetime
+
+
+class ActivityProposal(Strict):
+    """助餐推广活动提案；proposed/confirmed 占用活动预留，cancelled 立即释放。"""
+    proposal_id: Key
+    campaign_id: Key
+    provider_id: Key
+    region: Region
+    district: Text
+    service_kind: ServiceKind
+    service_month: ServiceMonth
+    planned_people: Annotated[int, Field(ge=1, le=100_000_000)]
+    status: ProposalStatus = "proposed"
+    source_revision: Annotated[int, Field(ge=1, le=1_000_000)]
+    source_ref: Text
+    observed_at: datetime
 
 
 class Case(Strict):

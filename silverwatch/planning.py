@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 from fractions import Fraction
 from sqlite3 import Connection
 
+from silverwatch import allocation
 from silverwatch.analysis import format_rate
 from silverwatch.errors import invalid
 from silverwatch.ledger import current_cut
 from silverwatch.registry import catalog, needs
+
+
+def service_month_of(period_end: datetime) -> str:
+    return period_end.astimezone(timezone.utc).strftime("%Y-%m")
 
 
 def plan_region(db: Connection, *, region: str, period_end: datetime,
@@ -36,11 +41,17 @@ def plan_region(db: Connection, *, region: str, period_end: datetime,
         key = (row["district"], row["service_kind"])
         demand_by_area[key] += row["estimated_people"]
         cohorts_by_area[key][row["cohort"]] += row["estimated_people"]
+    service_month = service_month_of(period_end)
+    capacity_view = allocation.region_allocations(db, region=region,
+                                                   service_month=service_month, cut=chosen_cut)
+    capacity_by_area = {(row["district"], row["service_kind"]): row
+                        for row in capacity_view["areas"]}
     rows = []
     for district, kind in sorted(set(supply_by_area) | set(demand_by_area)):
         supply = supply_by_area[(district, kind)]
         demand = demand_by_area[(district, kind)]
         gap = max(demand - supply, 0)
+        capacity = capacity_by_area.get((district, kind))
         rows.append({"district": district, "service_kind": kind,
                      "monthly_capacity": supply, "estimated_people": demand,
                      "capacity_ratio": format_rate(Fraction(supply, demand) if demand else None),
@@ -48,12 +59,31 @@ def plan_region(db: Connection, *, region: str, period_end: datetime,
                      "provider_ids": sorted(providers_by_area[(district, kind)]),
                      "cohort_need": dict(sorted(cohorts_by_area[(district, kind)].items())),
                      "demand_observed": demand > 0,
-                     "capacity_observed": bool(providers_by_area[(district, kind)])})
+                     "capacity_observed": bool(providers_by_area[(district, kind)]),
+                     "capacity_allocation": _allocation_block(capacity)})
     return {"region": region, "period_end": period_end.isoformat(), "cut": chosen_cut,
+            "service_month": service_month,
             "areas": rows,
             "totals": {"estimated_people": sum(row["estimated_people"] for row in rows),
                        "monthly_capacity": sum(row["monthly_capacity"] for row in rows),
-                       "unserved_estimate": sum(row["unserved_estimate"] for row in rows)}}
+                       "unserved_estimate": sum(row["unserved_estimate"] for row in rows),
+                       "committed_appointments": capacity_view["totals"]["committed_appointments"],
+                       "activity_reserved": capacity_view["totals"]["activity_reserved"],
+                       "remaining_capacity": capacity_view["totals"]["remaining_capacity"],
+                       "available_capacity": capacity_view["totals"]["available_capacity"]},
+            "capacity_note": "报告容量是机构名录月度能力；已承诺预约不可被活动预留挤占；活动预留来自未取消提案；实际完成服务只统计触达批次，不在容量视图内。"}
+
+
+def _allocation_block(area: dict | None) -> dict:
+    if area is None:
+        return {"reported_capacity": 0, "committed_appointments": 0,
+                "activity_reserved": 0, "remaining_capacity": 0,
+                "available_capacity": 0, "commitment_breach": False,
+                "overcommitted": False}
+    return {key: area[key] for key in ("reported_capacity", "committed_appointments",
+                                       "activity_reserved", "remaining_capacity",
+                                       "available_capacity", "commitment_breach",
+                                       "overcommitted")}
 
 
 def compare_plans(first: dict, second: dict) -> dict:

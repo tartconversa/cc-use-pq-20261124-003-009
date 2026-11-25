@@ -96,6 +96,33 @@ def supply_coverage(providers: list[dict], need: list[dict], region: str,
     return result
 
 
+def service_delivery(batches: list[dict]) -> dict:
+    """实际完成服务只来自触达批次记录；活动预留与预约承诺均不计入已提供服务。"""
+    grouped = defaultdict(lambda: {"completed_services": 0, "exposed_people": 0,
+                                   "nonresponse_people": 0, "batches": []})
+    for row in batches:
+        key = (row["district"], row["service_kind"])
+        area = grouped[key]
+        area["completed_services"] += row["completed_services"]
+        area["exposed_people"] += row["exposed_people"]
+        area["nonresponse_people"] += row["nonresponse_people"]
+        area["batches"].append(row["batch_id"])
+    rows = []
+    for (district, kind), value in sorted(grouped.items()):
+        denominator = value["exposed_people"]
+        rows.append({"district": district, "service_kind": kind,
+                     "completed_services": value["completed_services"],
+                     "exposed_people": denominator,
+                     "nonresponse_people": value["nonresponse_people"],
+                     "completion_rate": format_rate(
+                         Fraction(value["completed_services"], denominator) if denominator else None),
+                     "batches": sorted(value["batches"])})
+    return {"areas": rows,
+            "total_completed_services": sum(row["completed_services"] for row in rows),
+            "total_exposed_people": sum(row["exposed_people"] for row in rows),
+            "basis": "completed_services counts only services actually delivered in observed touch batches; campaign reservations and appointments are excluded."}
+
+
 def risk_rows(db: Connection, cut: int, as_of: datetime, *, region: str,
               service_kind: ServiceKind | None, cohort: str | None) -> list[dict]:
     all_batches = touch_facts(db, region=region, cut=cut)
@@ -113,6 +140,7 @@ def risk_rows(db: Connection, cut: int, as_of: datetime, *, region: str,
     for action in remediations:
         remediation_by_case[action["case_id"]].append(action)
     grouped = defaultdict(lambda: {"exposed": 0, "nonresponse": 0, "reports": 0,
+                                   "completed_services": 0,
                                    "substantiated": 0, "pending": 0, "inconclusive": 0,
                                    "open_severe": 0, "verified_remediations": 0,
                                    "batches": [], "case_ids": set()})
@@ -121,6 +149,7 @@ def risk_rows(db: Connection, cut: int, as_of: datetime, *, region: str,
         row["exposed"] += batch["exposed_people"]
         row["nonresponse"] += batch["nonresponse_people"]
         row["reports"] += batch["report_count"]
+        row["completed_services"] += batch["completed_services"]
         row["batches"].append(batch["batch_id"])
         if not batch["coverage_complete"] and batch["nonresponse_people"] == 0:
             row["coverage_unknown_batches"] = row.get("coverage_unknown_batches", 0) + 1
@@ -191,6 +220,10 @@ def run(db: Connection, *, cut: int, as_of: datetime, region: str,
         raise invalid("analysis_cut", "分析截点超出当前事实")
     providers = catalog(db, region=region, cut=cut)
     needs_rows = needs(db, region=region, cut=cut, as_of=as_of)
+    delivery_batches = [row for row in touch_facts(db, region=region, cut=cut)
+                        if datetime.fromisoformat(row["observed_at"]) <= as_of
+                        and (service_kind is None or row["service_kind"] == service_kind)
+                        and (cohort is None or row["cohort"] == cohort)]
     rows = risk_rows(db, cut, as_of, region=region, service_kind=service_kind, cohort=cohort)
     reconciliation = reconcile(db, cut=cut, as_of=as_of)
     invalid_batches = {row["batch_id"] for row in reconciliation["batches"] if not row["complete"]}
@@ -225,10 +258,12 @@ def run(db: Connection, *, cut: int, as_of: datetime, region: str,
             item["eligible"] = False
         scored.append(item)
     risk_flags = [row for row in scored if row["gaps"]]
+    delivery = service_delivery(delivery_batches)
     document = {
         "format": 1, "region": region, "service_kind": service_kind,
         "cohort": cohort, "cut": cut, "as_of": as_of.isoformat(),
         "policy": policy.model_dump(mode="json"), "supply": supply,
+        "service_delivery": delivery,
         "areas": scored, "risk_flags": risk_flags,
         "reconciliation": {"complete": reconciliation["complete"],
                            "incomplete_batch_count": len(invalid_batches),

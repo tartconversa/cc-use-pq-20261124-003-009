@@ -53,6 +53,24 @@ def need_data(**updates):
     return value | updates
 
 
+def appointment_data(**updates):
+    value = {"appointment_id": "appointment-one", "provider_id": "provider-one",
+             "region": "suburban", "district": "district-a", "service_kind": "meal",
+             "service_month": "2026-11", "committed_people": 200,
+             "source_revision": 1, "source_ref": "booking-desk",
+             "observed_at": "2026-10-20T00:00:00Z"}
+    return value | updates
+
+
+def proposal_data(**updates):
+    value = {"proposal_id": "proposal-one", "campaign_id": "campaign-one",
+             "provider_id": "provider-one", "region": "suburban", "district": "district-a",
+             "service_kind": "meal", "service_month": "2026-11", "planned_people": 100,
+             "status": "proposed", "source_revision": 1, "source_ref": "campaign-desk",
+             "observed_at": "2026-10-21T00:00:00Z"}
+    return value | updates
+
+
 def case_data(**updates):
     value = {"case_id": "case-one", "provider_id": "provider-one", "batch_id": "touch-one",
              "kind": "misleading_claim", "severity": "medium",

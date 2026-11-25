@@ -7,7 +7,8 @@ from typing import Callable
 from pydantic import ValidationError
 
 from silverwatch import evidence, registry, review
-from silverwatch.contracts import Case, CaseEvidence, NeedBatch, Provider, ReviewDecision, TouchBatch
+from silverwatch.contracts import (ActivityProposal, Case, CaseEvidence, NeedBatch,
+                                   Provider, ReviewDecision, ServiceAppointment, TouchBatch)
 from silverwatch.errors import Problem, invalid
 from silverwatch.ledger import current_cut
 
@@ -15,6 +16,8 @@ HANDLERS: dict[str, tuple[type, Callable]] = {
     "providers": (Provider, registry.register_provider),
     "needs": (NeedBatch, registry.register_need),
     "touches": (TouchBatch, registry.register_touch),
+    "appointments": (ServiceAppointment, None),
+    "proposals": (ActivityProposal, None),
     "cases": (Case, None),
     "evidence": (CaseEvidence, evidence.add),
     "decisions": (ReviewDecision, review.decide),
@@ -39,6 +42,14 @@ def _dispatch(db: Connection, kind: str, model, source: str, revision: int) -> d
         return registry.register_need(db, model)
     if kind == "touches":
         return registry.register_touch(db, model)
+    if kind == "appointments":
+        from silverwatch import allocation
+
+        return allocation.register_appointment(db, model)
+    if kind == "proposals":
+        from silverwatch import allocation
+
+        return allocation.register_proposal(db, model)
     if kind == "cases":
         return registry.register_case(db, model.model_dump(mode="json"), source, revision)
     if kind == "evidence":
@@ -81,6 +92,8 @@ def import_bundle(db: Connection, bundle: dict) -> dict:
             identity = (kind, getattr(model, "provider_id", None) or
                         getattr(model, "estimate_id", None) or
                         getattr(model, "batch_id", None) or
+                        getattr(model, "appointment_id", None) or
+                        getattr(model, "proposal_id", None) or
                         getattr(model, "case_id", None) or
                         getattr(model, "evidence_id", None) or
                         getattr(model, "decision_id", None))

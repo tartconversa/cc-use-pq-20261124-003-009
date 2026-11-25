@@ -8,7 +8,8 @@ from silverwatch.digest import digest
 from silverwatch.errors import conflict, invalid, missing
 from silverwatch.storage import encode
 
-EVENT_TYPES = {"provider", "touch", "need", "case", "case_evidence", "decision", "remediation"}
+EVENT_TYPES = {"provider", "touch", "need", "case", "case_evidence", "decision",
+               "remediation", "appointment", "proposal"}
 
 
 def now() -> str:

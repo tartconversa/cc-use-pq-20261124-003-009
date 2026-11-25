@@ -5,9 +5,10 @@ from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from silverwatch import cases, evidence, planning, registry, review, service
-from silverwatch.contracts import (AnalysisPolicy, Approval, Case, CaseEvidence,
-                                   NeedBatch, Provider, Remediation, ReviewDecision, TouchBatch)
+from silverwatch import allocation, cases, evidence, planning, registry, review, service
+from silverwatch.contracts import (ActivityProposal, AnalysisPolicy, Approval, Case,
+                                   CaseEvidence, NeedBatch, Provider, Remediation,
+                                   ReviewDecision, ServiceAppointment, TouchBatch)
 from silverwatch.ledger import current_cut
 from silverwatch.storage import Store
 
@@ -23,6 +24,10 @@ def run_fixture(path: str | Path) -> dict:
             registry.register_touch(db, touch)
             need = NeedBatch.model_validate(fixture["need"])
             registry.register_need(db, need)
+            appointment = ServiceAppointment.model_validate(fixture["appointment"])
+            allocation.register_appointment(db, appointment)
+            proposal = ActivityProposal.model_validate(fixture["proposal"])
+            allocation.register_proposal(db, proposal)
             case = Case.model_validate(fixture["case"])
             cases.create(db, case, "case-intake", 1)
             material = CaseEvidence.model_validate(fixture["evidence"])
@@ -48,10 +53,17 @@ def run_fixture(path: str | Path) -> dict:
             bulletin = service.publish(db, created["analysis_id"], 0)
             plan = planning.plan_region(db, region="suburban",
                                         period_end=datetime.fromisoformat("2026-11-01T00:00:00+00:00"))
+            november = allocation.provider_allocation(db, provider_id="river-meals",
+                                                       service_month="2026-11")
             return {"scenario": fixture["scenario"], "analysis": created,
                     "review_ready": review_state["ready"],
                     "bulletin": {"edition": bulletin["edition"],
                                  "digest": bulletin["bulletin_digest"],
                                  "case_counts": bulletin["document"]["case_counts"],
                                  "area_count": len(bulletin["document"]["areas"])},
-                    "service_plan": plan["totals"]}
+                    "service_plan": plan["totals"],
+                    "allocation_november": {key: november[key] for key in (
+                        "reported_capacity", "committed_appointments", "activity_reserved",
+                        "remaining_capacity", "commitment_breach")},
+                    "service_delivery_total": bulletin["document"][
+                        "service_delivery"]["total_completed_services"]}

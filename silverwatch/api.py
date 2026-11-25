@@ -8,10 +8,12 @@ from typing import Iterator
 from fastapi import Body, FastAPI, Query, Response
 from pydantic import BaseModel, Field
 
-from silverwatch import analysis, cases, channels, comparison, csvio, exports, intake, lineage, ndjson, planning, publication, queries, reconciliation, registry, review, service, trends, workqueue
-from silverwatch.contracts import (AnalysisPolicy, AnalysisRequest, Approval, Case,
-                                   CaseEvidence, NeedBatch, Provider, PublishRequest,
-                                   Remediation, ReviewDecision, TouchBatch)
+from silverwatch import (allocation, analysis, cases, channels, comparison, csvio, exports,
+                         intake, lineage, ndjson, planning, publication, queries,
+                         reconciliation, registry, review, service, trends, workqueue)
+from silverwatch.contracts import (ActivityProposal, AnalysisPolicy, AnalysisRequest, Approval,
+                                   Case, CaseEvidence, NeedBatch, Provider, PublishRequest,
+                                   Remediation, ReviewDecision, ServiceAppointment, TouchBatch)
 from silverwatch.errors import Problem
 from silverwatch.storage import Store
 
@@ -169,6 +171,37 @@ def create_app(database: str | Path = "silverwatch.sqlite3") -> FastAPI:
     def service_plan(region: str, period_end: datetime, cut: int | None = None):
         with read() as db:
             return planning.plan_region(db, region=region, period_end=period_end, cut=cut)
+
+    @app.post("/appointments")
+    def add_appointment(body: ServiceAppointment):
+        with write() as db:
+            return allocation.register_appointment(db, body)
+
+    @app.post("/proposals")
+    def add_proposal(body: ActivityProposal):
+        with write() as db:
+            return allocation.register_proposal(db, body)
+
+    @app.put("/proposals/{proposal_id}")
+    def revise_proposal(proposal_id: str, body: ActivityProposal, revision: int = Query(ge=1)):
+        if body.proposal_id != proposal_id:
+            raise Problem(422, "proposal_scope", "URL 与提案编号不一致")
+        if body.source_revision != revision:
+            raise Problem(422, "proposal_revision", "查询参数修订号必须与提案来源修订号一致")
+        with write() as db:
+            return allocation.register_proposal(db, body)
+
+    @app.get("/providers/{provider_id}/allocations/{service_month}")
+    def provider_month_allocation(provider_id: str, service_month: str, cut: int | None = None):
+        with read() as db:
+            return allocation.provider_allocation(db, provider_id=provider_id,
+                                                  service_month=service_month, cut=cut)
+
+    @app.get("/regions/{region}/allocations/{service_month}")
+    def region_month_allocation(region: str, service_month: str, cut: int | None = None):
+        with read() as db:
+            return allocation.region_allocations(db, region=region,
+                                                 service_month=service_month, cut=cut)
 
     @app.get("/regions/{region}/channels")
     def channel_report(region: str, as_of: datetime, cut: int | None = None,
